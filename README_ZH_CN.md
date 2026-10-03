@@ -73,7 +73,7 @@
 - [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (Json序列化)
 
 > [!TIP]
-> 你需要在 `app` 文件夹下添加 `google-services.json` 文件才能构建应用。
+> 已移除 Firebase Analytics 和 Crashlytics，构建无需 `google-services.json`。扫码功能仍使用 ML Kit，因此间接保留 Firebase 的组件和编码工具库。
 
 ## 💰 捐赠
 

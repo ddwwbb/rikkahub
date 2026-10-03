@@ -78,7 +78,7 @@ Technology stack documentation:
 - [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (JSON serialization)
 
 > [!TIP]
-> You need a `google-services.json` file at `app` folder to build the app.
+> Firebase Analytics and Crashlytics have been removed; builds do not require `google-services.json`. Barcode scanning still uses ML Kit, which brings Firebase component and encoder utility libraries transitively.
 
 ## 💰 Donate
 
