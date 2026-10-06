@@ -35,6 +35,7 @@ fun ASRProviderConfigure(
                     is ASRProviderSetting.OpenAIRealtime -> "OpenAI Realtime"
                     is ASRProviderSetting.DashScope -> "DashScope"
                     is ASRProviderSetting.Volcengine -> "Volcengine"
+                    is ASRProviderSetting.VoiceGateway -> "Voice Gateway"
                     is ASRProviderSetting.MiMo -> "MiMo"
                     is ASRProviderSetting.Step -> "Step"
                 },
@@ -60,9 +61,32 @@ fun ASRProviderConfigure(
             is ASRProviderSetting.OpenAIRealtime -> OpenAIRealtimeASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.DashScope -> DashScopeASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.Volcengine -> VolcengineASRConfiguration(setting, onValueChange)
+            is ASRProviderSetting.VoiceGateway -> VoiceGatewayASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.MiMo -> MiMoASRConfiguration(setting, onValueChange)
             is ASRProviderSetting.Step -> StepASRConfiguration(setting, onValueChange)
         }
+    }
+}
+
+@Composable
+private fun VoiceGatewayASRConfiguration(
+    setting: ASRProviderSetting.VoiceGateway,
+    onValueChange: (ASRProviderSetting) -> Unit,
+) {
+    FormItem(label = { Text(stringResource(R.string.setting_asr_configure_api_key)) }) {
+        OutlinedTextField(
+            value = setting.apiKey,
+            onValueChange = { onValueChange(setting.copy(apiKey = it)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    FormItem(label = { Text(stringResource(R.string.setting_asr_configure_websocket_url)) }) {
+        OutlinedTextField(
+            value = setting.websocketUrl,
+            onValueChange = { onValueChange(setting.copy(websocketUrl = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("ws://电脑IP:8080/v1/asr") },
+        )
     }
 }
 

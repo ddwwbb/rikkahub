@@ -20,6 +20,7 @@ import me.rerere.asr.providers.MiMoASRController
 import me.rerere.asr.providers.OpenAIRealtimeASRController
 import me.rerere.asr.providers.StepASRController
 import me.rerere.asr.providers.VolcengineASRController
+import me.rerere.asr.providers.VoiceGatewayASRController
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
 import okhttp3.OkHttpClient
@@ -106,6 +107,11 @@ private class CustomAsrStateImpl(
 
     private fun createController(provider: ASRProviderSetting): ASRController? {
         return when (provider) {
+            is ASRProviderSetting.VoiceGateway -> {
+                if (provider.websocketUrl.isBlank()) return null
+                VoiceGatewayASRController(context, httpClient, provider)
+            }
+
             is ASRProviderSetting.OpenAIRealtime -> {
                 if (provider.apiKey.isBlank()) return null
                 OpenAIRealtimeASRController(context, httpClient, provider)

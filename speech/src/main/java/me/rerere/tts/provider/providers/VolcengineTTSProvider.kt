@@ -1,9 +1,7 @@
 package me.rerere.tts.provider.providers
 
 import android.content.Context
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.serialization.Serializable
@@ -70,6 +68,7 @@ internal class VolcengineTTSStreamProcessor {
     fun process(event: SseEvent): AudioChunk? = when (event) {
         SseEvent.Open -> null
         is SseEvent.Event -> {
+            check(event.data.length <= 1024 * 1024) { "Volcengine TTS audio event exceeds the stream buffer limit" }
             val response = volcengineJson.decodeFromString<VolcengineResponse>(event.data)
             check(response.code == 0 || response.code == 20000000) {
                 "Volcengine TTS error ${response.code}: ${response.message}"
@@ -98,6 +97,7 @@ internal class VolcengineTTSStreamProcessor {
 // V3 SSE: https://www.volcengine.com/docs/6561/1598757
 class VolcengineTTSProvider : TTSProvider<TTSProviderSetting.Volcengine> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -108,8 +108,6 @@ class VolcengineTTSProvider : TTSProvider<TTSProviderSetting.Volcengine> {
     ): Flow<AudioChunk> = flow {
         val processor = VolcengineTTSStreamProcessor()
         httpClient.sseFlow(buildVolcengineTTSRequest(providerSetting, request.text))
-            // sseFlow uses trySend; fuse an unlimited buffer so audio bursts are not dropped.
-            .buffer(Channel.UNLIMITED)
             .transformWhile { event ->
                 val chunk = processor.process(event)
                 if (chunk != null) emit(chunk)

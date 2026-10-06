@@ -11,12 +11,24 @@ sealed class ASRProviderSetting {
 
     // Describes our adapter, not every API offered by this vendor.
     val supportsServerVadVoiceMode: Boolean
-        get() = this is OpenAIRealtime || this is DashScope || this is Volcengine
+        get() = this is OpenAIRealtime || this is DashScope || this is Volcengine || this is VoiceGateway
 
     abstract fun copyProvider(
         id: Uuid = this.id,
         name: String = this.name,
     ): ASRProviderSetting
+
+    @Serializable
+    @SerialName("voice_gateway")
+    data class VoiceGateway(
+        override val id: Uuid = Uuid.random(),
+        override val name: String = "Voice Gateway ASR",
+        val apiKey: String = "",
+        val websocketUrl: String = "",
+    ) : ASRProviderSetting() {
+        override fun copyProvider(id: Uuid, name: String): ASRProviderSetting =
+            copy(id = id, name = name)
+    }
 
     @Serializable
     @SerialName("openai_realtime")
@@ -180,6 +192,7 @@ sealed class ASRProviderSetting {
                 OpenAIRealtime::class,
                 DashScope::class,
                 Volcengine::class,
+                VoiceGateway::class,
                 MiMo::class,
                 Step::class,
             )

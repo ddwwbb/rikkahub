@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.finishReasoning
+import me.rerere.rikkahub.data.ai.GenerationControl
 import me.rerere.rikkahub.data.model.Conversation
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,9 +33,39 @@ class ConversationSession(
     val state: StateFlow<Conversation> = _state.asStateFlow()
     private val initializationMutex = Mutex()
     private val metadataMutex = Mutex()
+    internal val persistenceMutex = Mutex()
+    private val interruptedVoiceReplies = mutableSetOf<Uuid>()
     @Volatile
     private var initialized = false
     val messageQueue = MessageQueue()
+    internal var voiceReply: VoiceReply? = null
+        private set
+    internal var voiceControl: GenerationControl? = null
+        private set
+
+    @Synchronized
+    internal fun replaceVoiceReply(reply: VoiceReply, control: GenerationControl) {
+        voiceReply?.supersede()
+        voiceControl?.interrupt()
+        voiceReply = reply
+        voiceControl = control
+        trimInterruptedVoiceReplies(state.value)
+    }
+
+    @Synchronized
+    internal fun isLatestVoiceReply(reply: VoiceReply): Boolean = voiceReply === reply
+
+    @Synchronized
+    internal fun markVoicePlaybackInterrupted(replyId: Uuid) {
+        interruptedVoiceReplies.add(replyId)
+        voiceReply?.takeIf { it.id == replyId }?.markPlaybackInterrupted()
+        updateConversation(state.value.copy(messageNodes = state.value.messageNodes.map { node ->
+            node.copy(messages = node.messages.map { message ->
+                if (message.voiceReplyId == replyId) message.copy(voicePlaybackInterrupted = true)
+                else message
+            })
+        }))
+    }
 
     // 页面切换和 SSE 重连只加载一次；活跃 session 的内存状态始终优先。
     suspend fun initialize(load: suspend () -> Conversation) {
@@ -51,8 +82,26 @@ class ConversationSession(
     @Synchronized
     fun updateConversation(conversation: Conversation) {
         require(conversation.id == id)
-        _state.value = conversation
+        trimInterruptedVoiceReplies(conversation)
+        _state.value = if (interruptedVoiceReplies.isEmpty()) conversation else {
+            conversation.copy(messageNodes = conversation.messageNodes.map { node ->
+                node.copy(messages = node.messages.map { message ->
+                    if (message.voiceReplyId != null && message.voiceReplyId in interruptedVoiceReplies) {
+                        message.copy(voicePlaybackInterrupted = true)
+                    } else message
+                })
+            })
+        }
         initialized = true
+    }
+
+    private fun trimInterruptedVoiceReplies(conversation: Conversation) {
+        if (interruptedVoiceReplies.isEmpty()) return
+        val retained = conversation.messageNodes.flatMap { node ->
+            node.messages.mapNotNull { it.voiceReplyId }
+        }.toMutableSet()
+        voiceReply?.let { retained.add(it.id) }
+        interruptedVoiceReplies.retainAll(retained)
     }
 
     // 元数据先应用到最新内存状态；落库只更新对应列，不能用旧消息快照覆盖流式输出。

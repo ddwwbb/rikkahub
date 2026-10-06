@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.tts.provider.emitHttpAudio
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
-import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,6 +23,7 @@ private const val TAG = "FishAudioTTSProvider"
 
 class FishAudioTTSProvider : TTSProvider<TTSProviderSetting.FishAudio> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -55,19 +58,6 @@ class FishAudioTTSProvider : TTSProvider<TTSProviderSetting.FishAudio> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string()
-            Log.e(TAG, "generateSpeech: ${response.code} ${response.message}")
-            Log.e(TAG, "generateSpeech: $errorBody")
-            throw TTSProviderException(
-                message = "Fish Audio TTS request failed: ${response.code} ${response.message}",
-                statusCode = response.code
-            )
-        }
-
-        val audioData = response.body.bytes()
 
         val audioFormat = when (providerSetting.format.lowercase()) {
             "mp3" -> AudioFormat.MP3
@@ -77,17 +67,12 @@ class FishAudioTTSProvider : TTSProvider<TTSProviderSetting.FishAudio> {
             else -> AudioFormat.MP3
         }
 
-        emit(
-            AudioChunk(
-                data = audioData,
-                format = audioFormat,
-                isLast = true,
-                metadata = mapOf(
-                    "provider" to "fish-audio",
-                    "model" to providerSetting.model,
-                    "referenceId" to providerSetting.referenceId
-                )
-            )
-        )
-    }
+        // Fish PCM defaults to 44.1kHz, 16-bit mono (official /v1/tts contract).
+        emitHttpAudio(httpClient, httpRequest, audioFormat,
+            sampleRate = if (audioFormat == AudioFormat.PCM) 44100 else null,
+            metadata = mapOf(
+            "provider" to "fish-audio", "model" to providerSetting.model,
+            "referenceId" to providerSetting.referenceId,
+        ))
+    }.flowOn(Dispatchers.IO)
 }

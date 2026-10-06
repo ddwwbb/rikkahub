@@ -28,7 +28,12 @@ class SystemTTSProvider : TTSProvider<TTSProviderSetting.SystemTTS> {
     ): Flow<AudioChunk> = flow {
         val audioData = suspendCancellableCoroutine<ByteArray> { continuation ->
             var tts: TextToSpeech? = null
+            var outputFile: File? = null
             val listener = TextToSpeech.OnInitListener { status ->
+                if (!continuation.isActive) {
+                    tts?.shutdown()
+                    return@OnInitListener
+                }
                 if (status == TextToSpeech.SUCCESS) {
                     val ttsInstance = tts ?: error("TextToSpeech instance is null")
 
@@ -48,7 +53,8 @@ class SystemTTSProvider : TTSProvider<TTSProviderSetting.SystemTTS> {
 
                 // Create temporary file for audio output using temp directory like RikkaHubApp
                 val tempDir = context.appTempFolder
-                val audioFile = File(tempDir, "tts_${System.currentTimeMillis()}.wav")
+                val audioFile = File(tempDir, "tts_${UUID.randomUUID()}.wav")
+                outputFile = audioFile
 
                 val utteranceId = UUID.randomUUID().toString()
 
@@ -109,7 +115,9 @@ class SystemTTSProvider : TTSProvider<TTSProviderSetting.SystemTTS> {
         tts = TextToSpeech(context, listener)
 
         continuation.invokeOnCancellation {
+            tts?.stop()
             tts?.shutdown()
+            outputFile?.delete()
         }
     }
 

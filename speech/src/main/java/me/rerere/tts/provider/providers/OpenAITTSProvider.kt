@@ -4,12 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.tts.provider.emitHttpAudio
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
-import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,6 +23,7 @@ private const val TAG = "OpenAITTSProvider"
 
 class OpenAITTSProvider : TTSProvider<TTSProviderSetting.OpenAI> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -46,31 +48,13 @@ class OpenAITTSProvider : TTSProvider<TTSProviderSetting.OpenAI> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val statusCode = response.code
-            val statusMessage = response.message
-            response.close()
-            throw TTSProviderException(
-                message = "TTS request failed: $statusCode $statusMessage",
-                statusCode = statusCode
-            )
-        }
-
-        val audioData = response.body.bytes()
-
-        emit(
-            AudioChunk(
-                data = audioData,
-                format = AudioFormat.MP3,
-                isLast = true,
-                metadata = mapOf(
-                    "provider" to "openai",
-                    "model" to providerSetting.model,
-                    "voice" to providerSetting.voice
-                )
-            )
+        emitHttpAudio(
+            httpClient, httpRequest, AudioFormat.MP3,
+            metadata = mapOf(
+                "provider" to "openai",
+                "model" to providerSetting.model,
+                "voice" to providerSetting.voice,
+            ),
         )
-    }
+    }.flowOn(Dispatchers.IO)
 }

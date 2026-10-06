@@ -191,9 +191,9 @@ class OpenAIRealtimeASRController(
                             val event = JSONObject()
                                 .put("type", "input_audio_buffer.append")
                                 .put("audio", encoded)
-                            socket.send(event.toString())
+                            check(socket.send(event.toString())) { "ASR refused audio frame" }
                         } else {
-                            Log.w(TAG, "WebSocket queue full, dropping audio frame")
+                            error("ASR network audio buffer overflow; recording stopped without silently dropping frames")
                         }
                     } else if (read < 0) {
                         throw IllegalStateException("AudioRecord read error: $read")
@@ -273,6 +273,11 @@ class OpenAIRealtimeASRController(
     }
 
     private fun setError(message: String) {
+        recorderJob?.cancel()
+        runCatching { audioRecord?.stop() }
+        val socket = webSocket
+        webSocket = null
+        socket?.cancel()
         _state.update {
             it.copy(
                 status = ASRStatus.Error,
@@ -289,7 +294,7 @@ class OpenAIRealtimeASRController(
     }
 }
 
-private fun ASRProviderSetting.OpenAIRealtime.websocketEndpoint(): String {
+internal fun ASRProviderSetting.OpenAIRealtime.websocketEndpoint(): String {
     val endpoint = websocketUrl.trim()
     if (endpoint.contains("intent=transcription")) return endpoint
     if (endpoint.contains("model=")) return endpoint
@@ -297,7 +302,7 @@ private fun ASRProviderSetting.OpenAIRealtime.websocketEndpoint(): String {
     return "${endpoint.trimEnd('/')}${separator}intent=transcription"
 }
 
-private fun ASRProviderSetting.OpenAIRealtime.sessionUpdateEvent(): JSONObject {
+internal fun ASRProviderSetting.OpenAIRealtime.sessionUpdateEvent(): JSONObject {
     val transcription = JSONObject()
         .put("model", model)
     if (language.isNotBlank()) transcription.put("language", language)

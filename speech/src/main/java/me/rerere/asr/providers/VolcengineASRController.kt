@@ -232,9 +232,9 @@ class VolcengineASRController(
                         _state.update { it.copy(amplitudes = it.amplitudes.appendAmplitude(amplitude)) }
                         if (socket.queueSize() < MAX_WEBSOCKET_QUEUE_BYTES) {
                             val frame = VolcengineASRProtocol.audioFrame(buffer.copyOfRange(0, read))
-                            socket.send(frame.toByteString())
+                            check(socket.send(frame.toByteString())) { "ASR refused audio frame" }
                         } else {
-                            Log.w(TAG, "WebSocket queue full, dropping audio frame")
+                            error("ASR network audio buffer overflow; recording stopped without silently dropping frames")
                         }
                     } else if (read < 0) {
                         throw IllegalStateException("AudioRecord read error: $read")

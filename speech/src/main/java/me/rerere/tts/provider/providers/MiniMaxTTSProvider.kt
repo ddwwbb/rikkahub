@@ -38,6 +38,7 @@ private data class MiniMaxResponse(
 
 class MiniMaxTTSProvider : TTSProvider<TTSProviderSetting.MiniMax> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
@@ -80,7 +81,7 @@ class MiniMaxTTSProvider : TTSProvider<TTSProviderSetting.MiniMax> {
             when (it) {
                 is SseEvent.Open -> Log.i(TAG, "SSE connection opened")
                 is SseEvent.Event -> {
-                    try {
+                        check(it.data.length <= 1024 * 1024) { "MiniMax TTS audio event exceeds the stream buffer limit" }
                         val data = json.decodeFromString<MiniMaxResponse>(it.data)
 
                         // Convert hex string to bytes
@@ -102,9 +103,6 @@ class MiniMaxTTSProvider : TTSProvider<TTSProviderSetting.MiniMax> {
                             )
                         )
                         hasEmittedAudio = true
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to process audio chunk", e)
-                    }
                 }
 
                 is SseEvent.Closed -> {

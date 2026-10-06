@@ -4,13 +4,15 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.tts.provider.emitHttpAudio
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
-import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -39,6 +41,7 @@ private val JSON_MEDIA_TYPE = "application/json".toMediaType()
  */
 class StepTTSProvider : TTSProvider<TTSProviderSetting.Step> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         // 一次性合成可能比较慢 (长文本 + 高质量模型), 给足读超时
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
@@ -73,22 +76,6 @@ class StepTTSProvider : TTSProvider<TTSProviderSetting.Step> {
             .post(requestBody.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-        if (!response.isSuccessful) {
-            // 把错误响应体读出来方便排查 (4xx 通常返回 JSON 错误信息)
-            val errorBody = runCatching { response.body?.string() }.getOrNull().orEmpty()
-            throw TTSProviderException(
-                message = "Step TTS request failed: HTTP ${response.code} ${response.message}. body=$errorBody",
-                statusCode = response.code
-            )
-        }
-
-        val audioBytes = response.body?.bytes()
-            ?: throw Exception("Step TTS returned empty body")
-
-        if (audioBytes.isEmpty()) {
-            throw Exception("Step TTS returned 0 bytes")
-        }
 
         // StepFun 端的 format 字符串与 AudioFormat 枚举对齐
         val audioFormat = when (providerSetting.responseFormat.lowercase()) {
@@ -101,19 +88,9 @@ class StepTTSProvider : TTSProvider<TTSProviderSetting.Step> {
             else -> AudioFormat.MP3
         }
 
-        emit(
-            AudioChunk(
-                data = audioBytes,
-                format = audioFormat,
-                sampleRate = providerSetting.sampleRate,
-                isLast = true,
-                metadata = mapOf(
-                    "provider" to "step",
-                    "model" to providerSetting.model,
-                    "voice" to providerSetting.voice,
-                    "responseFormat" to providerSetting.responseFormat,
-                )
-            )
-        )
-    }
+        emitHttpAudio(httpClient, httpRequest, audioFormat, providerSetting.sampleRate, mapOf(
+            "provider" to "step", "model" to providerSetting.model,
+            "voice" to providerSetting.voice, "responseFormat" to providerSetting.responseFormat,
+        ))
+    }.flowOn(Dispatchers.IO)
 }

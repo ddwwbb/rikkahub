@@ -32,6 +32,7 @@ class ASRVoiceTurnTest {
         assertTrue(ASRProviderSetting.OpenAIRealtime().supportsServerVadVoiceMode)
         assertTrue(ASRProviderSetting.DashScope().supportsServerVadVoiceMode)
         assertTrue(ASRProviderSetting.Volcengine().supportsServerVadVoiceMode)
+        assertTrue(ASRProviderSetting.VoiceGateway().supportsServerVadVoiceMode)
         assertFalse(ASRProviderSetting.Step().supportsServerVadVoiceMode)
         assertFalse(ASRProviderSetting.MiMo().supportsServerVadVoiceMode)
     }

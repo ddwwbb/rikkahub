@@ -238,9 +238,9 @@ class DashScopeASRController(
                                 .put("event_id", "evt_${System.currentTimeMillis()}")
                                 .put("type", "input_audio_buffer.append")
                                 .put("audio", encoded)
-                            socket.send(event.toString())
+                            check(socket.send(event.toString())) { "ASR refused audio frame" }
                         } else {
-                            Log.w(TAG, "WebSocket queue full, dropping audio frame")
+                            error("ASR network audio buffer overflow; recording stopped without silently dropping frames")
                         }
                     } else if (read < 0) {
                         throw IllegalStateException("AudioRecord read error: $read")
@@ -310,7 +310,7 @@ class DashScopeASRController(
                 Log.e(TAG, "DashScope ASR transcription failed: $message")
                 partialTranscripts.remove(itemId)
                 publishTranscript()
-                _state.update { it.copy(errorMessage = message) }
+                setError(message)
             }
 
             "error" -> {
@@ -343,6 +343,12 @@ class DashScopeASRController(
     }
 
     private fun setError(message: String) {
+        recorderJob?.cancel()
+        runCatching { audioRecord?.stop() }
+        finishTimeoutJob?.cancel()
+        val socket = webSocket
+        webSocket = null
+        socket?.cancel()
         _state.update {
             it.copy(
                 status = ASRStatus.Error,
@@ -365,7 +371,7 @@ private fun sessionFinishEvent(): JSONObject {
         .put("type", "session.finish")
 }
 
-private fun ASRProviderSetting.DashScope.websocketEndpoint(): String {
+internal fun ASRProviderSetting.DashScope.websocketEndpoint(): String {
     val endpoint = websocketUrl
         .trim()
         .trimEnd('/')
@@ -375,7 +381,7 @@ private fun ASRProviderSetting.DashScope.websocketEndpoint(): String {
     else "${endpoint}${separator}model=${model}"
 }
 
-private fun ASRProviderSetting.DashScope.sessionUpdateEvent(): JSONObject {
+internal fun ASRProviderSetting.DashScope.sessionUpdateEvent(): JSONObject {
     val transcription = JSONObject()
     if (language.isNotBlank()) transcription.put("language", language)
 

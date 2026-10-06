@@ -4,6 +4,11 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.common.http.withCancellableResponse
 import kotlinx.coroutines.flow.flow
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
@@ -22,6 +27,7 @@ private const val TAG = "QwenTTSProvider"
 
 class QwenTTSProvider : TTSProvider<TTSProviderSetting.Qwen> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -57,7 +63,7 @@ class QwenTTSProvider : TTSProvider<TTSProviderSetting.Qwen> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        httpClient.newCall(httpRequest).execute().use { response ->
+        httpClient.newCall(httpRequest).withCancellableResponse { response ->
             if (!response.isSuccessful) {
                 val errorBody = response.body.string()
                 Log.e(
@@ -74,6 +80,7 @@ class QwenTTSProvider : TTSProvider<TTSProviderSetting.Qwen> {
                 var currentData = StringBuilder()
 
                 reader.lineSequence().forEach { line ->
+                    currentCoroutineContext().ensureActive()
                     when {
                         line.startsWith("data:") -> {
                             currentData.append(line.removePrefix("data:").trimStart())
@@ -92,20 +99,22 @@ class QwenTTSProvider : TTSProvider<TTSProviderSetting.Qwen> {
                 }
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     private fun parseSSEData(
         data: String,
         providerSetting: TTSProviderSetting.Qwen,
     ): AudioChunk? {
-        return try {
+            check(data.length <= 1024 * 1024) { "Qwen TTS audio event exceeds the stream buffer limit" }
             val json = JSONObject(data)
+            val code = json.optString("code")
+            check(code.isBlank()) { "Qwen TTS error $code: ${json.optString("message")}" }
             val output = json.optJSONObject("output") ?: return null
             val audio = output.optJSONObject("audio") ?: return null
             val audioBase64 = audio.optString("data", "")
             val finishReason = output.optString("finish_reason", "")
 
-            if (audioBase64.isNotEmpty()) {
+            return if (audioBase64.isNotEmpty()) {
                 val audioData = Base64.decode(audioBase64, Base64.DEFAULT)
                 val isLast = finishReason == "stop"
                 AudioChunk(
@@ -129,9 +138,5 @@ class QwenTTSProvider : TTSProvider<TTSProviderSetting.Qwen> {
             } else {
                 null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse SSE data: $data", e)
-            null
-        }
     }
 }

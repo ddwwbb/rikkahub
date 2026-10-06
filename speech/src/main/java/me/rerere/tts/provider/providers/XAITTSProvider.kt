@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.tts.provider.emitHttpAudio
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
-import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,6 +23,7 @@ private const val TAG = "XAITTSProvider"
 
 class XAITTSProvider : TTSProvider<TTSProviderSetting.XAI> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -44,31 +47,9 @@ class XAITTSProvider : TTSProvider<TTSProviderSetting.XAI> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string()
-            Log.e(TAG, "generateSpeech: ${response.code} ${response.message}")
-            Log.e(TAG, "generateSpeech: $errorBody")
-            throw TTSProviderException(
-                message = "xAI TTS request failed: ${response.code} ${response.message}",
-                statusCode = response.code
-            )
-        }
-
-        val audioData = response.body.bytes()
-
-        emit(
-            AudioChunk(
-                data = audioData,
-                format = AudioFormat.MP3,
-                isLast = true,
-                metadata = mapOf(
-                    "provider" to "xai",
-                    "voice_id" to providerSetting.voiceId,
-                    "language" to providerSetting.language
-                )
-            )
-        )
-    }
+        emitHttpAudio(httpClient, httpRequest, AudioFormat.MP3, metadata = mapOf(
+            "provider" to "xai", "voice_id" to providerSetting.voiceId,
+            "language" to providerSetting.language,
+        ))
+    }.flowOn(Dispatchers.IO)
 }

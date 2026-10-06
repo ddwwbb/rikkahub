@@ -28,6 +28,7 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+    implementation("com.github.gkonovalov.android-vad:webrtc:2.0.10")
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)

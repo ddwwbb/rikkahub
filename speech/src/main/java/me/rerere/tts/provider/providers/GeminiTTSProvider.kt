@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.common.http.withCancellableResponse
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,6 +28,7 @@ private const val TAG = "GeminiTTSProvider"
 
 class GeminiTTSProvider : TTSProvider<TTSProviderSetting.Gemini> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     private val json = Json { ignoreUnknownKeys = true }
@@ -94,12 +98,11 @@ class GeminiTTSProvider : TTSProvider<TTSProviderSetting.Gemini> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
+        httpClient.newCall(httpRequest).withCancellableResponse { response ->
 
         if (!response.isSuccessful) {
             val statusCode = response.code
             val statusMessage = response.message
-            response.close()
             throw TTSProviderException(
                 message = "Gemini TTS request failed: $statusCode $statusMessage",
                 statusCode = statusCode
@@ -115,24 +118,33 @@ class GeminiTTSProvider : TTSProvider<TTSProviderSetting.Gemini> {
             throw Exception("No audio data returned from Gemini TTS")
         }
 
-        val audioBase64 = geminiResponse.candidates[0].content.parts[0].inlineData.data
-        val audioData = Base64.decode(audioBase64, Base64.DEFAULT)
+        val inline = geminiResponse.candidates[0].content.parts[0].inlineData
+        val audioData = Base64.decode(inline.data, Base64.DEFAULT)
+        val mime = inline.mimeType.lowercase()
+        val format = when {
+            mime.startsWith("audio/l16") || mime.startsWith("audio/pcm") -> AudioFormat.PCM
+            mime.startsWith("audio/wav") || mime.startsWith("audio/x-wav") -> AudioFormat.WAV
+            mime.startsWith("audio/mpeg") -> AudioFormat.MP3
+            else -> error("Unsupported Gemini TTS audio MIME: ${inline.mimeType}")
+        }
+        val sampleRate = Regex("rate=(\\d+)").find(mime)?.groupValues?.get(1)?.toInt() ?: 24000
 
         emit(
             AudioChunk(
                 data = audioData,
-                format = AudioFormat.PCM,
-                sampleRate = 24000, // Gemini TTS returns 24kHz 16-bit mono PCM
+                format = format,
+                sampleRate = sampleRate,
                 isLast = true,
                 metadata = mapOf(
                     "provider" to "gemini",
                     "model" to providerSetting.model,
                     "voice" to providerSetting.voiceName,
-                    "sampleRate" to "24000",
+                    "sampleRate" to sampleRate.toString(),
                     "channels" to "1",
                     "bitDepth" to "16"
                 )
             )
         )
-    }
+        }
+    }.flowOn(Dispatchers.IO)
 }

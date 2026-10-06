@@ -11,7 +11,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,7 +56,6 @@ class ChatVM(
     private val conversationRepo: ConversationRepository,
     private val chatService: ChatService,
     val updateChecker: UpdateChecker,
-    private val analytics: FirebaseAnalytics,
     private val filesManager: FilesManager,
     private val favoriteRepository: FavoriteRepository,
 ) : ViewModel() {
@@ -68,9 +66,12 @@ class ChatVM(
     // 聊天输入状态 - 保存在 ViewModel 中避免 TransactionTooLargeException
     val inputState = ChatInputState()
 
-    val voiceSession = VoiceSessionController(viewModelScope, context::getString) {
-        chatService.enqueueVoiceMessage(_conversationId, it)
-    }
+    val voiceSession = VoiceSessionController(
+        scope = viewModelScope,
+        getString = context::getString,
+        submitMessage = { chatService.submitVoiceMessage(_conversationId, it) },
+        markInterrupted = { chatService.markVoicePlaybackInterrupted(_conversationId, it) },
+    )
 
     // 异步任务 (从ChatService获取，响应式)
     val conversationJob: StateFlow<Job?> =
@@ -166,6 +167,7 @@ class ChatVM(
 
     // 设置聊天模型
     fun setChatModel(assistant: Assistant, model: Model) {
+        voiceSession.stop()
         viewModelScope.launch {
             settingsStore.update { settings ->
                 settings.copy(
@@ -206,14 +208,14 @@ class ChatVM(
      */
     fun handleMessageSend(content: List<UIMessagePart>,answer: Boolean = true) {
         if (content.isEmptyInputMessage()) return
-        analytics.logEvent("ai_send_message", null)
+        voiceSession.stop()
 
         chatService.sendMessage(_conversationId, content, answer)
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
         if (parts.isEmptyInputMessage()) return
-        analytics.logEvent("ai_edit_message", null)
+        voiceSession.stop()
 
         viewModelScope.launch {
             chatService.editMessage(_conversationId, messageId, parts)
@@ -256,7 +258,6 @@ class ChatVM(
         message: UIMessage,
         regenerateAssistantMsg: Boolean = true
     ) {
-        analytics.logEvent("ai_regenerate_at_message", null)
         chatService.regenerateAtMessage(_conversationId, message, regenerateAssistantMsg)
     }
 
@@ -265,7 +266,6 @@ class ChatVM(
         approved: Boolean,
         reason: String = ""
     ) {
-        analytics.logEvent("ai_tool_approval", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved, reason)
     }
 
@@ -273,7 +273,6 @@ class ChatVM(
         toolCallId: String,
         answer: String,
     ) {
-        analytics.logEvent("ai_tool_answer", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved = true, answer = answer)
     }
 
@@ -308,6 +307,7 @@ class ChatVM(
     }
 
     fun moveConversationToAssistant(conversation: Conversation, targetAssistantId: Uuid) {
+        if (conversation.id == _conversationId) voiceSession.stop()
         viewModelScope.launch {
             chatService.moveConversationToAssistant(conversation.id, targetAssistantId)
             if (conversation.id == _conversationId) {

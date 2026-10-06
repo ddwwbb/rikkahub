@@ -25,6 +25,9 @@ data class UIMessage(
     val modelId: Uuid? = null,
     val usage: TokenUsage? = null,
     val translation: String? = null,
+    val voiceReplyId: Uuid? = null,
+    // Playback may have stopped before this answer was fully heard; no exact offset is claimed.
+    val voicePlaybackInterrupted: Boolean = false,
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient
     val isSynthetic: Boolean = false,

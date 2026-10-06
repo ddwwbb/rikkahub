@@ -48,7 +48,8 @@ internal fun VoiceModeRow(
                         VoicePhase.Listening -> if (state.pendingReplies > 0)
                             stringResource(R.string.chat_page_voice_listening_queued) else stringResource(R.string.chat_page_voice_listening)
                         VoicePhase.Transcribing -> stringResource(R.string.chat_page_voice_transcribing)
-                        VoicePhase.Speaking -> stringResource(R.string.chat_page_voice_speaking)
+                        VoicePhase.Speaking -> if (state.isListening) "正在播报，同时聆听；可直接插话" else
+                            stringResource(R.string.chat_page_voice_speaking)
                         VoicePhase.Error -> stringResource(R.string.chat_page_voice_paused)
                     },
                     style = MaterialTheme.typography.bodySmall,

@@ -77,6 +77,7 @@ internal class MiMoSseProcessor(
         return when (event) {
             is SseEvent.Open -> null
             is SseEvent.Event -> {
+                check(event.data.length <= 1024 * 1024) { "MiMo TTS audio event exceeds the stream buffer limit" }
                 // 只处理包含 audio.data 的增量事件 其他事件忽略
                 val pcmData = decodeMiMoAudioData(event.data) ?: return null
                 hasAudio = true
@@ -120,6 +121,7 @@ internal class MiMoSseProcessor(
 
 class MiMoTTSProvider : TTSProvider<TTSProviderSetting.MiMo> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 

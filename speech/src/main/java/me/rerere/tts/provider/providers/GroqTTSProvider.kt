@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import me.rerere.tts.provider.emitHttpAudio
 import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
-import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,6 +23,7 @@ private const val TAG = "GroqTTSProvider"
 
 class GroqTTSProvider : TTSProvider<TTSProviderSetting.Groq> {
     private val httpClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -45,31 +48,9 @@ class GroqTTSProvider : TTSProvider<TTSProviderSetting.Groq> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            Log.e(TAG, "generateSpeech: ${response.code} ${response.message}")
-            Log.e(TAG, "generateSpeech: ${response.body?.string()}")
-            throw TTSProviderException(
-                message = "Groq TTS request failed: ${response.code} ${response.message}",
-                statusCode = response.code
-            )
-        }
-
-        val audioData = response.body.bytes()
-
-        emit(
-            AudioChunk(
-                data = audioData,
-                format = AudioFormat.WAV,
-                isLast = true,
-                metadata = mapOf(
-                    "provider" to "groq",
-                    "model" to providerSetting.model,
-                    "voice" to providerSetting.voice,
-                    "response_format" to "wav"
-                )
-            )
-        )
-    }
+        emitHttpAudio(httpClient, httpRequest, AudioFormat.WAV, metadata = mapOf(
+            "provider" to "groq", "model" to providerSetting.model,
+            "voice" to providerSetting.voice, "response_format" to "wav",
+        ))
+    }.flowOn(Dispatchers.IO)
 }

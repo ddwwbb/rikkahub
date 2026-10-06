@@ -552,6 +552,14 @@ private fun AddASRProviderButton(onAdd: (ASRProviderSetting) -> Unit) {
                 }
             )
             DropdownMenuItem(
+                text = { Text("Voice Gateway") },
+                onClick = {
+                    currentProvider = ASRProviderSetting.VoiceGateway()
+                    showTypeMenu = false
+                    showBottomSheet = true
+                }
+            )
+            DropdownMenuItem(
                 text = { Text("MiMo") },
                 onClick = {
                     currentProvider = ASRProviderSetting.MiMo()
@@ -805,6 +813,7 @@ private fun ASRProviderItem(
                             is ASRProviderSetting.OpenAIRealtime -> "OpenAI Realtime"
                             is ASRProviderSetting.DashScope -> "DashScope"
                             is ASRProviderSetting.Volcengine -> "Volcengine"
+                            is ASRProviderSetting.VoiceGateway -> "Voice Gateway"
                             is ASRProviderSetting.MiMo -> "MiMo"
                             is ASRProviderSetting.Step -> "Step"
                         },

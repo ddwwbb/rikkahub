@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.ai
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -62,7 +63,8 @@ private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(
 @Serializable
 sealed interface GenerationChunk {
     data class Messages(
-        val messages: List<UIMessage>
+        val messages: List<UIMessage>,
+        val toolResultsCommitted: CompletableDeferred<Unit>? = null,
     ) : GenerationChunk
 }
 
@@ -87,6 +89,7 @@ class GenerationLoop(
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
+        control: GenerationControl? = null,
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -94,14 +97,19 @@ class GenerationLoop(
         var messages: List<UIMessage> = messages
 
         for (stepIndex in 0 until maxSteps) {
+            if (control?.isInterrupted() == true) break
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
 
             // Check if we have tool calls ready to continue after user interaction.
-            val pendingTools = messages.lastOrNull()?.getTools()?.filter {
+            val resumableToolMessageIndex = messages.indexOfLast { message ->
+                message.getTools().any { it.canResumeExecution }
+            }
+            val pendingTools = messages.getOrNull(resumableToolMessageIndex)?.getTools()?.filter {
                 it.canResumeExecution
             } ?: emptyList()
 
             val toolsToProcess: List<UIMessagePart.Tool>
+            val toolMessageIndex: Int
 
             // Skip generation if we have approved/denied tool calls to handle
             if (pendingTools.isEmpty()) {
@@ -211,15 +219,21 @@ class GenerationLoop(
                 }
 
                 toolsToProcess = updatedTools
+                toolMessageIndex = messages.lastIndex
             } else {
                 // Resuming after user interaction - use the resumable tools directly.
                 Log.i(TAG, "generateText: resuming with ${pendingTools.size} resumable tools")
-                toolsToProcess = messages.last().getTools().filter { it.canResumeExecution }
+                toolsToProcess = pendingTools
+                toolMessageIndex = resumableToolMessageIndex
             }
 
+            // Taking the gate and requesting interruption are atomic. Once admitted, the
+            // tool batch and its result commit finish before an interrupted turn stops.
+            if (control?.beginTools() == false) break
             // Handle tools (execute approved tools, handle denied tools)
             val executedTools = arrayListOf<UIMessagePart.Tool>()
-            toolsToProcess.forEach { tool ->
+            for (tool in toolsToProcess) {
+                if (executedTools.isNotEmpty() && control?.beginTools() == false) break
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
                         // Tool was denied by user
@@ -302,13 +316,21 @@ class GenerationLoop(
             }
 
             // Update last message with executed tools (NOT create TOOL message)
-            val lastMessage = messages.last()
+            val lastMessage = messages[toolMessageIndex]
             val updatedParts = lastMessage.parts.map { part ->
                 if (part is UIMessagePart.Tool) {
-                    executedTools.find { it.toolCallId == part.toolCallId } ?: part
+                    executedTools.find { it.toolCallId == part.toolCallId }
+                        ?: if (!part.isExecuted && control?.isInterrupted() == true) {
+                            part.copy(output = listOf(UIMessagePart.Text(
+                                """{"status":"cancelled","error":"Voice reply superseded before this tool started."}"""
+                            )))
+                        } else part
                 } else part
             }
-            messages = messages.dropLast(1) + lastMessage.copy(parts = updatedParts)
+            val committed = control?.let { CompletableDeferred<Unit>() }
+            messages = messages.toMutableList().also {
+                it[toolMessageIndex] = lastMessage.copy(parts = updatedParts)
+            }
             emit(
                 GenerationChunk.Messages(
                     messages.transforms(
@@ -317,9 +339,12 @@ class GenerationLoop(
                         model = model,
                         assistant = assistant,
                         settings = settings
-                    )
+                    ),
+                    toolResultsCommitted = committed,
                 )
             )
+            committed?.await()
+            if (control?.finishTools() == false) break
         }
 
     }.flowOn(Dispatchers.IO)

@@ -6,6 +6,7 @@ package me.rerere.tts.controller
 class TextChunker(
     private val maxChunkLength: Int = 150
 ) {
+    init { require(maxChunkLength >= 2) }
     fun split(text: String): List<TtsChunk> {
         if (text.isBlank()) return emptyList()
 
@@ -19,6 +20,17 @@ class TextChunker(
                     .asSequence()
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
+                    .flatMap { segment ->
+                        sequence {
+                            var start = 0
+                            while (start < segment.length) {
+                                var end = minOf(start + maxChunkLength, segment.length)
+                                if (end < segment.length && segment[end - 1].isHighSurrogate()) end--
+                                yield(segment.substring(start, end))
+                                start = end
+                            }
+                        }
+                    }
                     .fold(mutableListOf<StringBuilder>()) { acc, seg ->
                         if (acc.isEmpty() || acc.last().length + seg.length > maxChunkLength) {
                             acc.add(StringBuilder(seg))

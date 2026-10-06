@@ -18,4 +18,18 @@ class UIMessageSerializationTest {
         assertFalse(encoded.contains("isSynthetic"))
         assertFalse(decoded.isSynthetic)
     }
+
+    @Test
+    fun `voice interruption metadata persists without changing display text`() {
+        val replyId = kotlin.uuid.Uuid.random()
+        val message = UIMessage.assistant("original answer").copy(
+            voiceReplyId = replyId,
+            voicePlaybackInterrupted = true,
+        )
+        val decoded = Json.decodeFromString<UIMessage>(Json.encodeToString(message))
+        assertTrue(decoded.voicePlaybackInterrupted)
+        org.junit.Assert.assertEquals(replyId, decoded.voiceReplyId)
+        org.junit.Assert.assertEquals("original answer", decoded.toText())
+        org.junit.Assert.assertEquals("[ASSISTANT]: original answer", decoded.summaryAsText())
+    }
 }
